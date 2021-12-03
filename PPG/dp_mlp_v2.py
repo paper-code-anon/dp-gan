@@ -88,9 +88,10 @@ def convert_data_to_averaged(full_syn_data):
 batch_size = 16
 num_epochs = 150
 plot_increment = 10
-N = 3038  # TODO: Note: hard coded for convenience
+N = 3038
+folder_name = 'gan_eps_5_test'
 
-training_all = True  # TODO: CHeck! Whether to merge the test and training set for producing final output
+training_all = True
 applying_scaling = True
 
 # Noise application parameters
@@ -290,38 +291,31 @@ for _ in range(1):
                 plt.savefig(path + f'/accuracy.png')
 
 
-        for folder_name in [
-                            'mlp_dp_loss_10_runs',
-                            'mlp_dp_sgd_10_runs',
-                            'lstm_dp_loss_10_runs',
-                            'lstm_dp_sgd_10_runs',
+        for iteration in range(1):
+            fake_vals_df = pd.read_csv(f'{folder_name}/generated_fakes_normalised_{iteration}.csv')
+            # output_classes = torch.argmax(net(torch.Tensor(convert_data_to_averaged(fake_vals_df).values)), dim=1).detach().numpy()
+            output_classes = torch.argmax(net(torch.Tensor(fake_vals_df.values)), dim=1).detach().numpy()
+            output_classes_df = pd.DataFrame(output_classes, columns=['activity_label'])
+            output_activities = output_classes_df.applymap(lambda x: label_activity_mapping[x])
 
-                            ]:
-            for iteration in range(10):
-                fake_vals_df = pd.read_csv(f'{folder_name}/generated_fakes_normalised_{iteration}.csv')
-                # output_classes = torch.argmax(net(torch.Tensor(convert_data_to_averaged(fake_vals_df).values)), dim=1).detach().numpy()
-                output_classes = torch.argmax(net(torch.Tensor(fake_vals_df.values)), dim=1).detach().numpy()
-                output_classes_df = pd.DataFrame(output_classes, columns=['activity_label'])
-                output_activities = output_classes_df.applymap(lambda x: label_activity_mapping[x])
+            # Apply inverse noisy transform
+            if applying_scaling:
+                fake_vals = np.apply_along_axis(
+                    lambda m: reverse_transform_noisy(m,
+                                                      Scaling.mean_,
+                                                      Scaling.scale_,
+                                                      inverse_transformation_sensitivity,
+                                                      N,
+                                                      inverse_transform_eps),
+                    axis=1,
+                    arr=fake_vals_df.values)
+                fake_vals_df = pd.DataFrame(fake_vals, columns=fake_vals_df.columns)
 
-                # Apply inverse noisy transform
-                if applying_scaling:
-                    fake_vals = np.apply_along_axis(
-                        lambda m: reverse_transform_noisy(m,
-                                                          Scaling.mean_,
-                                                          Scaling.scale_,
-                                                          inverse_transformation_sensitivity,
-                                                          N,
-                                                          inverse_transform_eps),
-                        axis=1,
-                        arr=fake_vals_df.values)
-                    fake_vals_df = pd.DataFrame(fake_vals, columns=fake_vals_df.columns)
+            # eps_1_df = pd.read_csv(f'{folder_name}/generated_fakes.csv')
 
-                # eps_1_df = pd.read_csv(f'{folder_name}/generated_fakes.csv')
-
-                fake_vals_with_activity = pd.concat([fake_vals_df, output_activities], axis=1)
-                # fake_vals_with_activity.to_csv(path + f'/{folder_name}_{epsilon}_classified_samples.csv', index=False)
-                fake_vals_with_activity.to_csv(path + f'/{folder_name}_classified_samples_{iteration}.csv', index=False)
+            fake_vals_with_activity = pd.concat([fake_vals_df, output_activities], axis=1)
+            # fake_vals_with_activity.to_csv(path + f'/{folder_name}_{epsilon}_classified_samples.csv', index=False)
+            fake_vals_with_activity.to_csv(path + f'/{folder_name}_classified_samples_{iteration}.csv', index=False)
 
 
 
