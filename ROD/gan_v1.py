@@ -209,6 +209,7 @@ for iteration in range(1):
                                 betas=(0.5, 0.999), weight_decay=1e-5)
 
         criterion = nn.BCEWithLogitsLoss()
+        single_sample_criterion = nn.BCEWithLogitsLoss(reduce=False)
 
         # Establish convention for real and fake labels during training
         one_vec = torch.ones(batch_size)  # Real
@@ -246,34 +247,33 @@ for iteration in range(1):
                 # Pass the real samples to the discriminator
                 errD_real = netD(x.float()).view(-1)
                 # Calculate the loss based on error from the true value
-                lossD_real = criterion(errD_real, one_vec)
+                lossD_real = single_sample_criterion(errD_real, one_vec)
+                # lossD_real = criterion(errD_real, one_vec)
 
-                # if applying_noise:
-                #     # Failure mode where loss becomes 0 for batch: skip this to avoid nan gradients
-                #     if lossD_real.item() != 0:
-                #         # Clamp loss to range based on experimental results for this network and dataset
-                #         lossD_real_clamped = torch.clamp(lossD_real, min=min_empirical_discriminator_loss,
-                #                                          max=max_empirical_discriminator_loss)
-                #         # Apply noise to the loss
-                #         lossD_real_clamped_noisy = lossD_real_clamped + \
-                #                                    np.random.normal(0, discriminator_noise_scale * discriminator_noise_range) * \
-                #                                    lossD_real_clamped / lossD_real_clamped.detach()
-                #         # Backprop the discriminator score
-                #         lossD_real_clamped_noisy.backward()
-                # else:
-                #     losses.append(lossD_real.item())
-                #     lossD_real.backward()
+                # Clamp loss to range based on experimental results for this network and dataset
+                # Add small value to avoid backprop on 0
+                lossD_real_clamped = torch.clamp(lossD_real, min=min_empirical_discriminator_loss + 0.00001,
+                                                 max=max_empirical_discriminator_loss)
 
-                if applying_noise:
-                    lossD_real.backward()
+                lossD_real_mean = lossD_real_clamped.mean()
 
-                    # # Clip norm of gradient vector to be maximum length C
-                    nn.utils.clip_grad_norm_(netD.parameters(), clipping_parameter)
+                # Apply noise to the loss
+                lossD_real_clamped_noisy = lossD_real_mean + \
+                                           np.random.normal(0, discriminator_noise_scale * discriminator_noise_range) * \
+                                           lossD_real_mean / lossD_real_mean.detach() / np.sqrt(batch_size)
 
-                    # Apply noise to each parameter gradient
-                    for p in netD.parameters():
-                        # Add noise
-                        p.grad += torch.normal(torch.zeros_like(p), discriminator_noise_scale * clipping_parameter)
+                lossD_real_clamped_noisy.backward()
+
+#                 if applying_noise:
+#                     lossD_real.backward()
+
+#                     # # Clip norm of gradient vector to be maximum length C
+#                     nn.utils.clip_grad_norm_(netD.parameters(), clipping_parameter)
+
+#                     # Apply noise to each parameter gradient
+#                     for p in netD.parameters():
+#                         # Add noise
+#                         p.grad += torch.normal(torch.zeros_like(p), discriminator_noise_scale * clipping_parameter)
 
                 # Train with all fake batch
                 # Generate fake image batch using the generator

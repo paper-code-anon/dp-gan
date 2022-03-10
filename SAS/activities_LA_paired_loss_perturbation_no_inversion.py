@@ -207,6 +207,7 @@ def run_gan(df, batch_size, num_epochs, discriminator_noise_scale):
 
     netD_array = [Discriminator(nx).apply(weights_init) for _ in range(time_series_feature_length)]
     criterion = nn.BCEWithLogitsLoss()
+    single_sample_criterion = nn.BCEWithLogitsLoss(reduce=False)
 
     # 3) Set up optimizers
     optimizerD_array = [optim.Adam(netD.parameters(), lr=0.001, eps=1e-6,
@@ -243,18 +244,22 @@ def run_gan(df, batch_size, num_epochs, discriminator_noise_scale):
                 # Pass the real samples to the discriminator
                 errD_real = netD_sample(x_sample).view(-1)
                 # Calculate the loss based on error from the true value
-                lossD_real = criterion(errD_real, one_vec)
-                # Failure mode where loss becomes 0 for batch: skip this to avoid nan gradients
-                if lossD_real.item() != 0:
-                    # Clamp loss to range based on experimental results for this network and dataset
-                    lossD_real_clamped = torch.clamp(lossD_real, min=min_empirical_discriminator_loss,
-                                                     max=max_empirical_discriminator_loss)
-                    # Apply noise to the loss
-                    lossD_real_clamped_noisy = lossD_real_clamped + \
-                                              np.random.normal(0, discriminator_noise_scale * discriminator_noise_range) * \
-                                              lossD_real_clamped / lossD_real_clamped.detach()
-                    # Backprop the discriminator score
-                    lossD_real_clamped_noisy.backward()
+                lossD_real = single_sample_criterion(errD_real, one_vec)
+                # lossD_real = criterion(errD_real, one_vec)
+
+                # Clamp loss to range based on experimental results for this network and dataset
+                # Add small value to avoid backprop on 0
+                lossD_real_clamped = torch.clamp(lossD_real, min=min_empirical_discriminator_loss + 0.00001,
+                                                 max=max_empirical_discriminator_loss)
+
+                lossD_real_mean = lossD_real_clamped.mean()
+
+                # Apply noise to the loss
+                lossD_real_clamped_noisy = lossD_real_mean + \
+                                           np.random.normal(0, discriminator_noise_scale * discriminator_noise_range) * \
+                                           lossD_real_mean / lossD_real_mean.detach() / np.sqrt(batch_size)
+
+                lossD_real_clamped_noisy.backward()
                     
                 # applying_noise = True
                 # if applying_noise:
